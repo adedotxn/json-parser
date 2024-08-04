@@ -4,11 +4,15 @@ enum TokenType {
     Colon,
     Comma,
     String,
+    True,
+    False,
+    Null,
+    Number,
     EOF
 }
 
 class Token {
-    constructor(public type: TokenType, public value?: string) { }
+    constructor(public type: TokenType, public value?: string | number | boolean | null) { }
 }
 
 class Lexer {
@@ -45,7 +49,13 @@ class Lexer {
             case '"':
                 return this.scanString();
             default:
-                throw new Error(`Unexpected character: ${char}`);
+                if (this.isDigit(char)) {
+                    return this.scanNumber(char);
+                } else if (this.isAlpha(char)) {
+                    return this.scanKeyword(char);
+                } else {
+                    throw new Error(`Unexpected character: ${char}`);
+                }
         }
     }
 
@@ -64,6 +74,46 @@ class Lexer {
         this.position++; // Skip closing quote
         return new Token(TokenType.String, value);
     }
+
+    private scanNumber(startingChar: string): Token {
+        let value = startingChar
+
+        while (this.position < this.input.length && this.isDigit(this.input[this.position])) {
+            value += this.input[this.position];
+            this.position++;
+        }
+
+        return new Token(TokenType.Number, value);
+    }
+
+    private scanKeyword(startingChar: string): Token {
+        let value = startingChar;
+
+        while (this.position < this.input.length && this.isAlpha(this.input[this.position])) {
+            value += this.input[this.position];
+            this.position++;
+        }
+
+        switch (value) {
+            case 'true':
+                return new Token(TokenType.True);
+            case 'false':
+                return new Token(TokenType.False);
+            case 'null':
+                return new Token(TokenType.Null);
+            default:
+                throw new Error(`Unexpected keyword: ${value}`);
+        }
+    }
+
+    private isDigit(char: string): boolean {
+        return /\d/.test(char);
+    }
+
+    private isAlpha(char: string): boolean {
+        return /[a-zA-Z]/.test(char);
+    }
+
 
     private skipWhitespace(): void {
         while (
@@ -139,12 +189,27 @@ class Parser {
             return false;
         }
 
-        if (!this.expect(TokenType.String)) {
+        if (!this.parseValue()) {
             return false;
         }
 
         return true;
     }
+
+    private parseValue(): boolean {
+        switch (this.currentToken.type) {
+            case TokenType.String:
+            case TokenType.Number:
+            case TokenType.True:
+            case TokenType.False:
+            case TokenType.Null:
+                this.advance();
+                return true;
+            default:
+                throw new Error(`Unexpected value type: ${TokenType[this.currentToken.type]}`);
+        }
+    }
+
 
     private expect(expectedType: TokenType): boolean {
         if (this.currentToken.type !== expectedType) {

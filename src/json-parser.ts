@@ -1,6 +1,10 @@
+import process from "node:process";
+
 enum TokenType {
     LeftBrace,
     RightBrace,
+    LeftBracket,
+    RightBracket,
     Colon,
     Comma,
     String,
@@ -46,11 +50,15 @@ class Lexer {
                 return new Token(TokenType.Colon);
             case ',':
                 return new Token(TokenType.Comma);
+            case '[':
+                return new Token(TokenType.LeftBracket);
+            case ']':
+                return new Token(TokenType.RightBracket);
             case '"':
                 return this.scanString();
             default:
                 if (this.isDigit(char)) {
-                    return this.scanNumber(char);
+                    return this.scanNumber();
                 } else if (this.isAlpha(char)) {
                     return this.scanKeyword(char);
                 } else {
@@ -75,15 +83,36 @@ class Lexer {
         return new Token(TokenType.String, value);
     }
 
-    private scanNumber(startingChar: string): Token {
-        let value = startingChar
 
-        while (this.position < this.input.length && this.isDigit(this.input[this.position])) {
-            value += this.input[this.position];
+
+    private scanNumber(): Token {
+        let value = '';
+        let hasDot = false;
+
+        if (this.input[this.position - 1] === '-') {
+            value = '-';
+        } else {
+            this.position--;
+        }
+
+        while (this.position < this.input.length) {
+            const char = this.input[this.position];
+            if (this.isDigit(char)) {
+                value += char;
+            } else if (char === '.' && !hasDot) {
+                value += char;
+                hasDot = true;
+            } else {
+                break;
+            }
             this.position++;
         }
 
-        return new Token(TokenType.Number, value);
+        if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)) {
+            throw new Error(`Invalid number format: ${value}`);
+        }
+
+        return new Token(TokenType.Number, parseFloat(value));
     }
 
     private scanKeyword(startingChar: string): Token {
@@ -140,10 +169,35 @@ class Parser {
 
     parse(): boolean {
         try {
-            return this.parseObject() && this.expectEOF();
+            // Only allow objects or arrays at the root level
+            if (this.currentToken.type === TokenType.LeftBrace) {
+                return this.parseObject() && this.expectEOF();
+            } else if (this.currentToken.type === TokenType.LeftBracket) {
+                return this.parseArray() && this.expectEOF();
+            } else {
+                throw new Error("Root value must be an object or array");
+            }
         } catch (error) {
             console.error("Parsing error:", error);
             return false;
+        }
+    }
+
+    private parseInput(): boolean {
+        switch (this.currentToken.type) {
+            case TokenType.String:
+            case TokenType.Number:
+            case TokenType.True:
+            case TokenType.False:
+            case TokenType.Null:
+                this.advance();
+                return true;
+            case TokenType.LeftBrace:
+                return this.parseObject();
+            case TokenType.LeftBracket:
+                return this.parseArray();
+            default:
+                throw new Error(`Unexpected value type: ${TokenType[this.currentToken.type]}`);
         }
     }
 
@@ -180,6 +234,39 @@ class Parser {
         return true;
     }
 
+    private parseArray(): boolean {
+        if (!this.expect(TokenType.LeftBracket)) {
+            return false;
+        }
+
+        // Empty array
+        if (this.currentToken.type === TokenType.RightBracket) {
+            this.advance();
+            return true;
+        }
+
+        // Array with elements
+        while (true) {
+            if (!this.parseInput()) {
+                return false;
+            }
+
+            if (this.currentToken.type === TokenType.RightBracket as TokenType) {
+                break;
+            }
+
+            if (!this.expect(TokenType.Comma)) {
+                return false;
+            }
+        }
+        if (!this.expect(TokenType.RightBracket)) {
+            return false;
+        }
+
+        return true
+    }
+
+
     private parseKeyValuePair(): boolean {
         if (!this.expect(TokenType.String)) {
             return false;
@@ -189,31 +276,19 @@ class Parser {
             return false;
         }
 
-        if (!this.parseValue()) {
+        if (!this.parseInput()) {
             return false;
         }
 
         return true;
     }
 
-    private parseValue(): boolean {
-        switch (this.currentToken.type) {
-            case TokenType.String:
-            case TokenType.Number:
-            case TokenType.True:
-            case TokenType.False:
-            case TokenType.Null:
-                this.advance();
-                return true;
-            default:
-                throw new Error(`Unexpected value type: ${TokenType[this.currentToken.type]}`);
-        }
-    }
+
 
 
     private expect(expectedType: TokenType): boolean {
         if (this.currentToken.type !== expectedType) {
-            throw new Error(`Expected ${TokenType[expectedType]}, but got ${TokenType[this.currentToken.type]}`);
+            throw new Error(`Syntax error <unexpected type> : ${TokenType[this.currentToken.type]}`);
         }
         this.advance();
         return true;
